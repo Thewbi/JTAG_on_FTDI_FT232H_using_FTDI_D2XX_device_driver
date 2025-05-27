@@ -19,6 +19,8 @@
 #include <stdio.h>
 #include "ftd2xx.h"
 
+constexpr int input_buffer_length = 1024;
+
 int _tmain(int argc, _TCHAR* argv[])
 {
 	FT_HANDLE ftHandle; // Handle of the FTDI device
@@ -26,7 +28,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	DWORD dwNumDevs; // The number of devices
 	unsigned int uiDevIndex = 0xF; // The device in the list that is used
 	BYTE byOutputBuffer[1024]; // Buffer to hold MPSSE commands and data to be sent to the FT2232H
-	BYTE byInputBuffer[1024]; // Buffer to hold data read from the FT2232H
+	BYTE byInputBuffer[input_buffer_length]; // Buffer to hold data read from the FT2232H
 	DWORD dwCount = 0; // General loop index
 	DWORD dwNumBytesToSend = 0; // Index to the output buffer
 	DWORD dwNumBytesSent = 0; // Count of actual bytes sent - used with FT_Write
@@ -125,7 +127,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	}
 
 	// Wait for all the USB stuff to complete and work
-	Sleep(5000); 
+	Sleep(3000);
 
 
 	// https://atadiat.com/en/e-ftdi-mpsse-engine-programming-basics-a-gui-example/
@@ -233,18 +235,18 @@ int _tmain(int argc, _TCHAR* argv[])
 	// Set initial states of the MPSSE interface - low byte, both pin directions and output values
 	//
 	
-	// Pin name                  | Signal Direction Config | Initial State Config
+	// Pin name                    | Signal Direction Config | Initial State Config
 	// ---------------------------------------------------------------------------
-	// ADBUS0 TCK/SK clock       | output 1                | low  0
-	// ADBUS1 TDI/D0             | output 1                | low  0
-	// ADBUS2 TDO/DI             | input  0                | low  0
-	// ADBUS3 TMS/CS chip select | output 1                | high 1
-	// ADBUS4 GPIOL0             | input  0                | low  0
-	// ADBUS5 GPIOL1             | input  0                | low  0
-	// ADBUS6 GPIOL2             | input  0                | low  0
-	// ADBUS7 GPIOL3             | input  0                | low  0
+	// AD_BUS_0 TCK/SK clock       | output 1                | low  0
+	// AD_BUS_1 TDI/D0             | output 1                | low  0
+	// AD_BUS_2 TDO/DI             | input  0                | low  0
+	// AD_BUS_3 TMS/CS chip select | output 1                | high 1
+	// AD_BUS_4 GPIOL0             | input  0                | low  0
+	// AD_BUS_5 GPIOL1             | input  0                | low  0
+	// AD_BUS_6 GPIOL2             | input  0                | low  0
+	// AD_BUS_7 GPIOL3             | input  0                | low  0
 	// ---------------------------------------------------------------------------
-	// 0x80                      | 0x0B (lsb first)        | 0x08 (lsb first)
+	// 0x80                        | 0x0B (lsb first)        | 0x08 (lsb first)
 
 	// column 1 in the table above. 0x80 targets the first eight lines
 	// which happen to be the pins from column 1
@@ -364,23 +366,285 @@ int _tmain(int argc, _TCHAR* argv[])
 
 
 	// https://ftdichip.com/Documents/AppNotes/AN_129_FTDI_Hi_Speed_USB_To_JTAG_Example.pdf
+	//
+
+
+
+	/**/
+
+	//
+	// Reset all state machines.
+	// Navigate to Debug-Logic-Reset (send five ones)
+	// because this is the well-known initial start state
+	//
+
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x04; // length = 5 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0x1F; // 00011111
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	
+
+	//
+	// Enter Shift-DR state by sending 0, 1, 0, 0
+	// 
+	// Debug-Logic-Reset -0-> 
+	// Run-Test/Idle -1-> 
+	// Select-DR-Scan -0-> 
+	// Caputre-DR -0->
+	// SHIFT-DR
 	// 
 
+	dwNumBytesToSend = 0;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4A; // write TMS without read (TMS with LSB first on +ve clk edge - use if clk is set to '1')
+	byOutputBuffer[dwNumBytesToSend++] = 0x4B; // write TMS without read (TMS with LSB first on -ve clk edge - use if clk is set to '0')
+	byOutputBuffer[dwNumBytesToSend++] = 0x03; // length = 4 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0x02; // 00000010
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//// shift out 32 bits (IDCODE register is 32 bits wide)
+	//dwNumBytesToSend = 0;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x3B; // write bits to TDI (out on -ve edge, in on +ve edge)
+	////byOutputBuffer[dwNumBytesToSend++] = 0x3E; // write bits to TDI (out on +ve edge, in on -ve edge)
+	////byOutputBuffer[dwNumBytesToSend++] = 0x6B; // TMS command
+
+	//byOutputBuffer[dwNumBytesToSend++] = 0x07; // eight bit
+
+	//byOutputBuffer[dwNumBytesToSend++] = 0x01; // 11111111
+	//ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	//dwNumBytesToSend = 0;
+
+
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x39; // 3.4.9 Clock Data Bytes In and Out LSB first 
+
+	byOutputBuffer[dwNumBytesToSend++] = 0x03; // length low (4 byte)
+	byOutputBuffer[dwNumBytesToSend++] = 0x00; // length high
+
+	byOutputBuffer[dwNumBytesToSend++] = 0x00; // byte 0
+	byOutputBuffer[dwNumBytesToSend++] = 0x00; // byte 1
+	byOutputBuffer[dwNumBytesToSend++] = 0x00; // byte 2
+	byOutputBuffer[dwNumBytesToSend++] = 0x00; // byte 3
+
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+
+	dwNumBytesToSend = 0;
+
+
+	Sleep(100);
+
+	memset(byInputBuffer, 0, input_buffer_length);
+
+	dwNumBytesToRead = 0;
+	do
+	{
+		// Get the number of bytes in the device input buffer or Timeout
+		ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+	} while ((dwNumBytesToRead == 0) && (ftStatus == FT_OK));
+	ftStatus = FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
+	
+	printf("done");
+	
+	/*
+	//
+	// Enter Shift-IR state by sending 0, 1, 1, 0, 0
+	// 
+	// Debug-Logic-Reset -0-> 
+	// Run-Test/Idle -1-> 
+	// Select-DR-Scan -1-> 
+	// Select-IR-Scan -0-> 
+	// Caputer-IR -0-> 
+	// Shift-IR
+	// 
+	// Shift-IR state is important because in the next step it is possible to shift
+	// data into the IR register
+	//
+
+	dwNumBytesToSend = 0;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4A; // write TMS without read (TMS with LSB first on +ve clk edge - use if clk is set to '1')
+	byOutputBuffer[dwNumBytesToSend++] = 0x4B; // write TMS without read (TMS with LSB first on -ve clk edge - use if clk is set to '0')
+	byOutputBuffer[dwNumBytesToSend++] = 0x04; // length = 5 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // 00000110
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	*/
+
+
+
+	//
+	// Write the BYPASS instruction into all IR registers of the daisy chained devices
+	//
+
+/*
+	for (int i = 0; i < 100; i++) {
+
+		dwNumBytesToSend = 0;
+		byOutputBuffer[dwNumBytesToSend++] = 0x3B; // write bits to TDI (out on -ve edge, in on +ve edge)
+		//byOutputBuffer[dwNumBytesToSend++] = 0x3E; // write bits to TDI (out on +ve edge, in on -ve edge)
+		byOutputBuffer[dwNumBytesToSend++] = 0x07; // eight bits
+		byOutputBuffer[dwNumBytesToSend++] = 0xFF; // 11111111
+		ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+		dwNumBytesToSend = 0;
+
+		printf("dwNumBytesSent: %d\n", dwNumBytesSent);
+
+	}
+
+	printf("IR write done.\n");
+*/
+
+	/*
+	//
+	// Transition from Shift-IR to Exit1-IR
+	// Use a TMS command to send TMS=1 and a data bit 1 at the same time
+	//
+
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4B;
+	byOutputBuffer[dwNumBytesToSend++] = 0x00; // length = 1 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0x81; // 10000001
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	*/
+
+	
+	/*
+	//
+	// Transition from Exit1-IR to Shift-DR by sending 1, 1, 0, 0 
+	// Use a TMS command to send TMS=1100. The value of the data bit does not matter.
+	// 
+	// We need to enter Shift-DR because in the next state data is shifted into
+	// the currently selected DR register of all devices of the daisy chain
+	//
+
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4B;
+	byOutputBuffer[dwNumBytesToSend++] = 0x03; // length = 4 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0x03; // 00000011
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	*/
+
+	/*
+	//
+	// Make absolutely sure that all BYPASS registers of all devices in the daisy chain
+	// are filled with zeroes
+	//
+
+	for (int i = 0; i < 100; i++) {
+
+		dwNumBytesToSend = 0;
+		byOutputBuffer[dwNumBytesToSend++] = 0x3B; // write bits to TDI (out on -ve edge, in on +ve edge)
+		//byOutputBuffer[dwNumBytesToSend++] = 0x3E; // write bits to TDI (out on +ve edge, in on -ve edge)
+		byOutputBuffer[dwNumBytesToSend++] = 0x07; // eight bits
+		byOutputBuffer[dwNumBytesToSend++] = 0x00; // 00000000
+		ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+		dwNumBytesToSend = 0;
+
+	}
+
+	printf("Fill with zero done\n");
+	*/
+
+	//
+	// Start counting by shifting 1s into all BYPASS registers of the daisy chain, until
+	// the first one exits the chain on TDO and count the amount of steps that it takes
+	// for the first 1 to appear. That amount of steps is the amount of devices in the 
+	// daisy chain.
+	//
+
+	bool done = false;
+	while (!done) {
+	//while (true) {
+
+		printf("reading BYPASS ...\n");
+
+		dwNumBytesToSend = 0;
+		byOutputBuffer[dwNumBytesToSend++] = 0x3B; // write bits to TDI (out on -ve edge, in on +ve edge)
+		//byOutputBuffer[dwNumBytesToSend++] = 0x3E; // write bits to TDI (out on +ve edge, in on -ve edge)
+		//byOutputBuffer[dwNumBytesToSend++] = 0x6B; // TMS command
+		
+		byOutputBuffer[dwNumBytesToSend++] = 0x00; // a single bit
+		//byOutputBuffer[dwNumBytesToSend++] = 0x01;
+		
+		byOutputBuffer[dwNumBytesToSend++] = 0x01; // 00000001
+		ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+		dwNumBytesToSend = 0;
+
+		Sleep(500);
+
+		memset(byInputBuffer, 0, input_buffer_length);
+
+		dwNumBytesToRead = 0;
+		do
+		{
+			// Get the number of bytes in the device input buffer or Timeout
+			ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+		} while ((dwNumBytesToRead == 0) && (ftStatus == FT_OK));
+		ftStatus = FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
+
+		if (byInputBuffer[0] != 0) {
+			done = true;
+		}
+
+		Sleep(100);
+	}
+
+	// 128, 0x80, 10000000
+	// 192, 0xC0, 11000000
+	// 224, 0xE0, 11100000
+	// 240, 0xF0, 11110000
+	// 248, 0xF8, 11111000
+	// 252, 0xFC, 11111100
+	// 254, 0xFE, 11111110
+	// 255, 0xFE, 11111111
+
+	
+	printf("0: %d \n", byInputBuffer[0]);
+	printf("200: %d \n", byInputBuffer[200]);
+
+	printf("done ...\n");
+	
+
+
+	/*
+	//
 	// Navigate TMS through:
-	// Test-Logic-Reset -> Run-Test-Idle -> Select-DR-Scan -> Select-IR-Scan
-	// TMS=1               TMS=0            TMS=1             TMS=1
+	// Navigate from Test-Logic-Reset to Shift-IR
+	// 
+	
+	// Assumption: state machine is in Test-Logic-Reset
+	// Test-Logic-Reset -> Run-Test-Idle -> Select-DR-Scan -> Select-IR-Scan -> Capture-IR -> Shift-IR
+	// TMS=1               TMS=0            TMS=1             TMS=1             TMS=0         TMS=0
 
 	// The command 0x4B is defined in this document:
 	// https://ftdichip.com/Documents/AppNotes/AN_108_Command_Processor_for_MPSSE_and_MCU_Host_Bus_Emulation_Modes.pdf
 	// 
-	// Don't read data in Test-Logic-Reset, Run-Test-Idle, Select-DR-Scan, Select-IR-Scan
-	byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0100 1011
+	// Don't read data in 
+	// Test-Logic-Reset, Run-Test-Idle, Select-DR-Scan, Select-IR-Scan, Capture-IR, Shift-IR
+	//
+	// Byte 0 - JTAG TMS Command Opcode - 0x4B (page 16) - No Data In, output clock edge is -VE
+	byOutputBuffer[dwNumBytesToSend++] = 0x4B;
 	
+	// Byte 1 - Length
 	// Number of clock pulses = Length + 1 (6 clocks here)
-	byOutputBuffer[dwNumBytesToSend++] = 0x05;
+	// this value incremented by 1 yields the actual amount of
+	// clock pulses that are executed. On each clock pulse, one
+	// TMS bit is transmitted.
+	byOutputBuffer[dwNumBytesToSend++] = 0x05; // length = 6
 	
+	// - send data bits 6 down to 0 to TMS
+	// - data bit 7 is passed on to TDI/DO before the first clk 
+	// of TMS and is held static for the duration of TMS clocking
+	// 
+	// Byte 2 - Data is set to 0x0D which is 00001101
+	// Data is shifted LSB first towards MSB.
+	// 
 	// Data is shifted LSB first, so the TMS pattern is 101100
-	byOutputBuffer[dwNumBytesToSend++] = 0x0D;
+	byOutputBuffer[dwNumBytesToSend++] = 0x0D; // 00001101
 	
 	// Send off the TMS command
 	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
@@ -394,13 +658,15 @@ int _tmain(int argc, _TCHAR* argv[])
 	
 	
 	// Source: https://ftdichip.com/Documents/AppNotes/AN_129_FTDI_Hi_Speed_USB_To_JTAG_Example.pdf
+	// 
 	// TMS is currently low.
-	// State machine is in Shift-IR, so now use the TDI/TDO command to shift 1's out TDI/DO 
-	// while reading TDO/DI. Although 8 bits need shifted in, only 7 are clocked here. 
+	// 
+	// State machine is in Shift-IR state, so now use the TDI/TDO command to shift 1's out TDI/DO 
+	// while reading TDO/DI. Although 8 bits need to be shifted in, only 7 are clocked here. 
 	// The 8th will be in conjunction with a TMS command, coming next
 	
 	// Clock data out through states Capture-IR, Shift-IR and Exit-IR, read back result
-	byOutputBuffer[dwNumBytesToSend++] = 0x3B; // 0x3B == 0011 1011
+	byOutputBuffer[dwNumBytesToSend++] = 0x3B;
 	
 	// Number of clock pulses = Length + 1 (7 clocks here)
 	byOutputBuffer[dwNumBytesToSend++] = 0x06;
@@ -501,28 +767,28 @@ int _tmain(int argc, _TCHAR* argv[])
 	
 	// Send off the TMS command
 	dwNumBytesToSend = 0; // Reset output buffer pointer
-	// Navigate TMS through Update-DR -> Select-DR-Scan -> Select-IR-Scan -> Test Logic Reset
-	// TMS=1 TMS=1 TMS=1 TMS=1
-	byOutputBuffer[dwNumBytesToSend++] = 0x4B;
+	// Navigate TMS through 
+	// Update-DR -> Select-DR-Scan -> Select-IR-Scan -> Test Logic Reset
+	// TMS=1        TMS=1             TMS=1             TMS=1
 	// Don't read data in Update-DR -> Select-DR-Scan -> Select-IR-Scan -> Test Logic Reset
-	byOutputBuffer[dwNumBytesToSend++] = 0x03;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4B;
 	// Number of clock pulses = Length + 1 (4 clocks here)
+	byOutputBuffer[dwNumBytesToSend++] = 0x03;
+	// Data is shifted LSB first, so the TMS pattern is 1111
 	byOutputBuffer[dwNumBytesToSend++] = 0xFF;
-	// Data is shifted LSB first, so the TMS pattern is 101100
-	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
-	
-	
-	
 	// Send off the TMS command
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
 	// Reset output buffer pointer
-	dwNumBytesToSend = 0; 
+	dwNumBytesToSend = 0;
+
+
+
 	do
 	{
+		// Get the number of bytes in the device input buffer or Timeout
 		ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
-		// Get the number of bytes in the device input buffer
+		
 	} while ((dwNumBytesToRead == 0) && (ftStatus == FT_OK));
-	
-	// or Timeout
 	ftStatus = FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
 	
 	// Read out the data from input buffer
@@ -534,6 +800,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	printf(" The value scanned by the FT2232H = 0x%x\n", (byInputBuffer[dwNumBytesRead - 1] >> 5));
 	
 	// Generate a clock while in Test-Logic-Reset
+	// 
 	// This will not do anything with the TAP in the Test-Logic-Reset state,
 	// but will demonstrate generation of clocks without any data transfer
 	byOutputBuffer[dwNumBytesToSend++] = 0x8F;
@@ -541,20 +808,21 @@ int _tmain(int argc, _TCHAR* argv[])
 	byOutputBuffer[dwNumBytesToSend++] = 0x02;
 	// (0x0002 + 1) * 8 = 24 clocks
 	byOutputBuffer[dwNumBytesToSend++] = 0x00;
-	//
-	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
 	// Send off the clock commands
-	dwNumBytesToSend = 0; // Reset output buffer pointer
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	// Reset output buffer pointer
+	dwNumBytesToSend = 0;
 
+	*/
 	
 	// -----------------------------------------------------------
 	// Start closing everything down
 	// -----------------------------------------------------------
 	
 	printf("\nJTAG program executed successfully.\n");
-	printf("Press <Enter> to continue\n");
-
-	getchar(); // wait for a carriage return
+	
+	//printf("Press <Enter> to continue\n");
+	//getchar(); // wait for a carriage return
 
 	FT_Close(ftHandle); // Close the port
 
