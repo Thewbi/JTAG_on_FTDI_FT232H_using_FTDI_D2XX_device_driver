@@ -15,11 +15,326 @@
 //
 //#include "stdafx.h"
 #include <windows.h>
+#include <stdint.h>
+#include <inttypes.h>
 #include "tchar.h"
 #include <stdio.h>
 #include "ftd2xx.h"
 
+
 constexpr int input_buffer_length = 1024;
+
+// ftHandle -- Handle of the FTDI device
+FT_STATUS pure_write_uint32_t(FT_HANDLE& ftHandle, uint32_t data) {
+
+	FT_STATUS ftStatus = FT_OK;
+
+	BYTE byOutputBuffer[128]; // Buffer to hold MPSSE commands and data to be sent to the FT2232H
+	DWORD dwNumBytesSent = 0; // Count of actual bytes sent - used with FT_Write
+
+	//int iterator_count = 0;
+	for (int i = 0; i < 33; i++) {
+
+		//
+		// Write
+		//
+
+		//printf("%d\n", iterator_count);
+
+		int dwNumBytesToSend = 0;
+
+		byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+
+		byOutputBuffer[dwNumBytesToSend++] = 0x00; // length = 1 bit
+
+		// send TMS = 0 to remain in the SHIFT_IR state
+		// send TDO = 1 to shift in a 1 into the IR-register
+		//byOutputBuffer[dwNumBytesToSend++] = 0b10000000;
+
+		byte bit = data & 0x01;
+		data = data >> 1;
+
+		//printf("%d\n", bit);
+
+		byOutputBuffer[dwNumBytesToSend++] = (bit << 7);
+
+		ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+		//printf("[WRITE] ftStatus = %d\n", ftStatus); // 0 == FT_OK
+		if (ftStatus != FT_OK) {
+			printf("[WRITE] ERROR OCCURED!\n");
+		}
+
+		dwNumBytesToSend = 0;
+
+		//Sleep(100);
+	}
+
+	// wait until all data is transmitted
+	DWORD dwNumBytesToRead = 0;
+	do
+	{
+		//printf("Reading ...\n");
+		ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+		//printf("Reading done.\n");
+
+	} while ((dwNumBytesToRead == 0) && (ftStatus == FT_OK));
+
+	return ftStatus;
+
+}
+
+// ftHandle -- Handle of the FTDI device
+uint32_t pure_read_uint32_t(FT_HANDLE &ftHandle) {
+
+	uint32_t value;
+	BYTE byInputBuffer[1024];
+
+	FT_STATUS ftStatus; // Result of each D2XX call
+	DWORD dwNumBytesToRead = 0; // Number of bytes available to read in the driver's input buffer
+	DWORD dwNumBytesRead = 0;
+	DWORD dwNumBytesToSend = 0; // Index to the output buffer
+	BYTE byOutputBuffer[128]; // Buffer to hold MPSSE commands and data to be sent to the FT2232H
+	DWORD dwNumBytesSent = 0; // Count of actual bytes sent - used with FT_Write
+
+	//
+	// Clear input buffer (because the pure read does not care about old data)
+	//
+
+	do
+	{
+		//printf("Reading ...\n");
+		ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+		//printf("Reading done.\n");
+
+	} while ((dwNumBytesToRead == 0) && (ftStatus == FT_OK));
+
+	printf("dwNumBytesToRead: %d\n", dwNumBytesToRead);
+
+	// clear input buffer
+	memset(byInputBuffer, 0, input_buffer_length);
+
+	// perform the read but do not process the data
+	ftStatus = FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
+
+
+	/*
+
+	//
+	// Shift/Write single bit wise! The read input will contain a snapshot of the 8-byte
+	// input buffer for every Shift/Write you perform!
+	//
+
+	for (int i = 0; i < 32; i++) {
+
+		dwNumBytesToSend = 0;
+		byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+		byOutputBuffer[dwNumBytesToSend++] = 0x00; // length = 1 bit
+		byOutputBuffer[dwNumBytesToSend++] = 0b10000000;
+		ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+		printf("[WRITE] ftStatus = %d\n", ftStatus); // 0 == FT_OK
+		if (ftStatus != FT_OK) {
+			printf("[WRITE] ERROR OCCURED!\n");
+		}
+		dwNumBytesToSend = 0;
+
+
+
+		//// get the number of bytes in the device input buffer or timeout
+		//do
+		//{
+		//	printf("Reading ...\n");
+		//	ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+		//	printf("Reading done.\n");
+
+		//} while ((dwNumBytesToRead == 0) && (ftStatus == FT_OK));
+
+		//printf("[READ] Buffer contains %d bytes.\n", dwNumBytesToRead);
+
+		//if (dwNumBytesToRead > 0) {
+
+		//	// clear input buffer
+		//	memset(byInputBuffer, 0, input_buffer_length);
+
+		//	// perform the read
+		//	ftStatus = FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
+		//	if (ftStatus != FT_OK) {
+		//		printf("error\n");
+		//	}
+		//	printf("[READ] dwNumBytesToRead: %d dwNumBytesRead: %d.\n", dwNumBytesToRead, dwNumBytesRead);
+
+		//	printf("%d - %d\n", i, byInputBuffer[0]);
+		//	printf("\n");
+
+		//}
+
+
+	}
+
+
+	// get the number of bytes in the device input buffer or timeout
+	do
+	{
+		printf("Reading ...\n");
+		ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+		printf("Reading done.\n");
+
+	} while ((dwNumBytesToRead == 0) && (ftStatus == FT_OK));
+
+	printf("[READ] Buffer contains %d bytes.\n", dwNumBytesToRead);
+
+	if (dwNumBytesToRead > 0) {
+
+		// clear input buffer
+		memset(byInputBuffer, 0, input_buffer_length);
+
+		// perform the read
+		ftStatus = FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
+		if (ftStatus != FT_OK) {
+			printf("error\n");
+		}
+		printf("[READ] dwNumBytesToRead: %d dwNumBytesRead: %d.\n", dwNumBytesToRead, dwNumBytesRead);
+
+		printf(" %d\n", byInputBuffer[0]);
+		printf("\n");
+
+	}
+	*/
+
+
+	/**/
+	//
+	// fill with 32 zeroes to push out the data
+	// 
+
+	// 7
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	Sleep(10);
+
+	// 14
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	Sleep(10);
+
+	// 21
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	Sleep(10);
+
+	// 28
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	Sleep(10);
+
+	// 32
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x03; // length = 4 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	Sleep(10);
+
+
+
+
+
+	//
+	// Read
+	//
+
+	printf("\n");
+
+	dwNumBytesToRead = 0;
+
+	// get the number of bytes in the device input buffer or timeout
+	do
+	{
+		printf("Reading ...\n");
+		ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+		printf("Reading done.\n");
+
+	} while ((dwNumBytesToRead == 0) && (ftStatus == FT_OK));
+
+	printf("[READ] Buffer contains %d bytes.\n", dwNumBytesToRead);
+
+	if (dwNumBytesToRead > 0) {
+
+		// clear input buffer
+		memset(byInputBuffer, 0, input_buffer_length);
+
+		// perform the read
+		ftStatus = FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
+		if (ftStatus != FT_OK) {
+			printf("error\n");
+		}
+		printf("[READ] dwNumBytesToRead: %d dwNumBytesRead: %d.\n", dwNumBytesToRead, dwNumBytesRead);
+
+		/*for (int i = 0; i < dwNumBytesRead; i++) {
+			printf("[READ] %d - %02X\n", i, byInputBuffer[i]);
+		}
+
+		buffer = buffer >> 1;
+		buffer |= (((byInputBuffer[0] & 0x80) >> 7) << 31);*/
+
+		//uint64_t buffer_read = 0;
+		//for (int i = 0; i < dwNumBytesRead; i++) {	
+		//	printf("[READ] %d - %02X\n", i, byInputBuffer[i]);
+
+		//	buffer_read = buffer_read >> 8;
+		//	buffer_read |= byInputBuffer[i] << 24;
+
+		//	//buffer_read = buffer_read >> 1;
+		//	//buffer_read |= (((byInputBuffer[0] & 0x80) >> 7) << 31);
+		//}
+		//printf("[READ] done. buffer: %zu\n", buffer_read);
+
+		value = (((byInputBuffer[4] & 0xF0) >> 4) << 28)
+			| (((byInputBuffer[3] & 0xFE) >> 1) << 21)
+			| (((byInputBuffer[2] & 0xFE) >> 1) << 14)
+			| (((byInputBuffer[1] & 0xFE) >> 1) << 7)
+			| (((byInputBuffer[0] & 0xFE) >> 1) << 0);
+
+		printf("[READ] done. value: %zu\n", value);
+
+		//printf("[READ] done. buffer: %"PRIu32"\n", buffer);
+		//printf("[READ] done. buffer: %zu\n", buffer);
+
+		//FT_Purge(ftHandle, FT_PURGE_RX);
+
+	}
+	else
+	{
+
+		printf("[READ] nothing to read!\n");
+
+		value = 0;
+
+	}
+
+	return value;
+}
 
 int _tmain(int argc, _TCHAR* argv[])
 {
@@ -327,6 +642,14 @@ int _tmain(int argc, _TCHAR* argv[])
 	// // Value of clock divisor, SCL Frequency = 60000000 / ( (1 + 0x05DB) * 2 ) (MHz) = 20000 (kHz)
 	//
 
+	//
+	// Send off the clock divisor commands
+	// https://www.ftdichip.com/Support/Documents/AppNotes/AN_135_MPSSE_Basics.pdf
+	// Section 3.2 Clocks
+	// 
+	// https://ftdichip.com/Documents/AppNotes/AN_129_FTDI_Hi_Speed_USB_To_JTAG_Example.pdf
+	// 
+
 	DWORD dwClockDivisor = 0x05DB; // Value of clock divisor, SCL Frequency = 60/((1+0x05DB)*2) (MHz) = 20khz
 	//DWORD dwClockDivisor = 0x751C; // clock = 1000Hz = 1kHz
 
@@ -354,11 +677,7 @@ int _tmain(int argc, _TCHAR* argv[])
 
 
 	//
-	// Send off the clock divisor commands
-	// https://www.ftdichip.com/Support/Documents/AppNotes/AN_135_MPSSE_Basics.pdf
-	// Section 3.2 Clocks
-	// 
-	// https://ftdichip.com/Documents/AppNotes/AN_129_FTDI_Hi_Speed_USB_To_JTAG_Example.pdf
+	// Disable internal loop-back
 	// 
 	
 	// Reset output buffer pointer
@@ -603,7 +922,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	printf("To EXIT2_DR (07d = 0x07 = 6'b000111) done.\n");
 	*/
 
-	/**/
+	/*
 	printf("To UPDATE_DR (08d = 0x08 = b1000) ...\n");
 
 	// send sequence: 11010010. Executed LSB first, this sequence
@@ -628,6 +947,8 @@ int _tmain(int argc, _TCHAR* argv[])
 	dwNumBytesToSend = 0;
 
 	printf("To UPDATE_DR (08d = 0x08 = b1000) done.\n");
+
+	*/
 
 	//
 	// IR Tests
@@ -657,7 +978,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	printf("To CAPTURE_IR (state 10d = 0x0A = b1010) done.\n");
 	*/
 
-	/*
+	/**/
 	printf("To SHIFT_IR (state 11d = 0x0B = b1011) ...\n");
 	dwNumBytesToSend = 0;
 	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
@@ -667,7 +988,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
 	dwNumBytesToSend = 0;
 	printf("To SHIFT_IR (state 11d = 0x0B = b1011) done.\n");
-	*/
+	
 
 	/*
 	printf("To EXIT1_IR (state 12d = 0x0C = b1100) ...\n");
@@ -749,6 +1070,564 @@ int _tmain(int argc, _TCHAR* argv[])
 
 
 
+	//
+	// 0x4A,0x4B - The 0x4A,0x4B command will only write to DATA OUT (TDO) and TMS
+	// but it will not read data. See page 16 which states: "No read operation will take place".
+	//
+	// 0x4A - sends data on the rising edge of the JTAG clock.
+	// 0x4B - sends data on the falling edge of the JTAG clock.
+	//
+	// The description of the SN74BCT8244ADW chip used in examples states that:
+	// "Data is captured on the rising edge of TCK and outputs change on the falling edge of TCK."
+	// We will follow this convention. Data is therefore sent in on the rising edge and read
+	// on the falling edge. This means of the two options (0x4A, 0x4B) we have, we will use
+	// 0x4A because it sends on the rising edge.
+	//
+
+	dwNumBytesToRead = 0;
+
+	// Purge USB receive buffer first by reading out all old data from FT2232H receive buffer 
+	ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+	
+	// Get the number of bytes in the FT2232H receive buffer 
+	if ((ftStatus == FT_OK) && (dwNumBytesToRead > 0)) {
+		
+		// Read out the data from FT2232H receive buffer
+		FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
+	}
+
+
+	
+
+	/*
+
+	//
+	// Fill with ones, use 7 bits per command
+	//
+
+	// 7
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b10000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	// 14
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b10000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	// 21
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b10000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	// 28
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b10000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	// 32
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x03; // length = 4 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b10000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	//// Check queue status:
+	//dwNumBytesToRead = 0;
+	//ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+	//printf("dwNumBytesToRead: %d\n", dwNumBytesToRead);
+
+
+	// because the chip internally needs to transmit and receive data which 
+	// takes time, the queue is not immediatelly filled with data.
+	// This do-while loop waits until data has arrived at the queue!
+	// An alternative to this wait loop would be to perform a sleep!
+	do
+	{
+		//printf("Reading ...\n");
+		ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+		//printf("Reading done.\n");
+
+	} while ((dwNumBytesToRead == 0) && (ftStatus == FT_OK));
+
+	printf("dwNumBytesToRead: %d\n", dwNumBytesToRead);
+
+	// clear input buffer
+	memset(byInputBuffer, 0, input_buffer_length);
+
+	// perform the read
+	ftStatus = FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
+
+	printf("[READ] dwNumBytesToRead: %d dwNumBytesRead: %d.\n", dwNumBytesToRead, dwNumBytesRead);
+
+	for (int i = 0; i < dwNumBytesRead; i++) {
+		printf("[READ] %d - %02X\n", i, byInputBuffer[i]);
+	}
+
+	dwNumBytesToRead = 0;
+	FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+	printf("dwNumBytesToRead: %d\n", dwNumBytesToRead);
+
+	printf("[READ] done\n");
+	printf("[READ] done\n");
+	printf("[READ] done\n");
+
+
+	printf("\n\n\n\n");
+
+
+
+	uint64_t buffer_read = 0;
+
+	// 7
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 8 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	// 14
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	// 21
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	// 28
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	// 32
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x03; // length = 4 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+	
+	do
+	{
+		//printf("Reading ...\n");
+		ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+		//printf("Reading done.\n");
+
+	} while ((dwNumBytesToRead == 0) && (ftStatus == FT_OK));
+
+	printf("dwNumBytesToRead: %d\n", dwNumBytesToRead);
+
+	// clear input buffer
+	memset(byInputBuffer, 0, input_buffer_length);
+
+	// perform the read
+	ftStatus = FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
+
+	printf("[READ] dwNumBytesToRead: %d dwNumBytesRead: %d.\n", dwNumBytesToRead, dwNumBytesRead);
+
+	for (int i = 0; i < dwNumBytesRead; i++) {
+		printf("[READ] %d - %02X\n", i, byInputBuffer[i]);
+
+		buffer_read = buffer_read >> 8;
+		buffer_read |= byInputBuffer[i] << 24;
+	}
+
+	printf("[READ] done. buffer: %zu\n", buffer_read);
+
+	printf("[READ] done\n");
+	*/
+
+
+
+
+
+
+    
+	uint32_t test_value = 0x12345678;
+
+	//
+	// fill with zeroes
+	// 
+
+	// 7
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 8 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	// 14
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	// 21
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	// 28
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	// 32
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x03; // length = 4 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	Sleep(100);
+
+	// clear the input buffer
+
+	do
+	{
+		//printf("Reading ...\n");
+		ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+		//printf("Reading done.\n");
+
+	} while ((dwNumBytesToRead == 0) && (ftStatus == FT_OK));
+
+	printf("dwNumBytesToRead: %d\n", dwNumBytesToRead);
+
+	// clear input buffer
+	memset(byInputBuffer, 0, input_buffer_length);
+
+	// perform the read
+	ftStatus = FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
+
+	printf("[READ] dwNumBytesToRead: %d dwNumBytesRead: %d.\n", dwNumBytesToRead, dwNumBytesRead);
+
+	for (int i = 0; i < dwNumBytesRead; i++) {
+		printf("[READ] %d - %02X\n", i, byInputBuffer[i]);
+	}
+
+	printf("[READ] done\n");
+
+
+	
+
+
+	//Sleep(2000);
+
+
+	/*
+	uint64_t buffer = 0;
+
+	// clear input buffer
+	memset(byInputBuffer, 0, input_buffer_length);
+
+	//int iterator_count = 0;
+	for (int i = 0; i < 33; i++) {
+
+		//
+		// Write
+		//
+
+		//printf("%d\n", iterator_count);
+
+		dwNumBytesToSend = 0;
+
+		byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+
+		byOutputBuffer[dwNumBytesToSend++] = 0x00; // length = 1 bit
+
+		// send TMS = 0 to remain in the SHIFT_IR state
+		// send TDO = 1 to shift in a 1 into the IR-register
+		//byOutputBuffer[dwNumBytesToSend++] = 0b10000000;
+
+		byte bit = test_value & 0x01;
+		test_value = test_value >> 1;
+
+		printf("%d\n", bit);
+
+		byOutputBuffer[dwNumBytesToSend++] = (bit << 7);
+
+		ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+		printf("[WRITE] ftStatus = %d\n", ftStatus); // 0 == FT_OK
+		if (ftStatus != FT_OK) {
+			printf("[WRITE] ERROR OCCURED!\n");
+		}
+
+		dwNumBytesToSend = 0;
+
+		Sleep(100);
+	}*/
+
+
+
+	pure_write_uint32_t(ftHandle, 0x12345678);
+	
+	uint32_t pure_read_result = pure_read_uint32_t(ftHandle);
+	printf("0x%08X\n", pure_read_result);
+
+
+
+
+
+
+
+	/*
+
+
+	//
+	// fill with zeroes
+	// 
+
+	// 7
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 8 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	// 14
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	// 21
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	// 28
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	// 32
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+	byOutputBuffer[dwNumBytesToSend++] = 0x03; // length = 4 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000000; // send in the data value 1 (= MSB), TMS = 0 (LSB [6:0])
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	//Sleep(10);
+
+	do
+	{
+		//printf("Reading ...\n");
+		ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+		//printf("Reading done.\n");
+
+	} while ((dwNumBytesToRead == 0) && (ftStatus == FT_OK));
+
+	printf("dwNumBytesToRead: %d\n", dwNumBytesToRead);
+
+	// clear input buffer
+	memset(byInputBuffer, 0, input_buffer_length);
+
+	// perform the read
+	ftStatus = FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
+
+	printf("[READ] dwNumBytesToRead: %d dwNumBytesRead: %d.\n", dwNumBytesToRead, dwNumBytesRead);
+
+	for (int i = 0; i < dwNumBytesRead; i++) {
+		printf("[READ] %d - %02X\n", i, byInputBuffer[i]);
+	}
+
+	printf("[READ] done\n");
+
+
+
+	Sleep(5000);
+
+	
+
+	uint64_t buffer = 0;
+
+	// clear input buffer
+	memset(byInputBuffer, 0, input_buffer_length);
+
+	int iterator_count = 0;
+	while (true) {
+
+		//
+		// Write
+		//
+
+		printf("%d\n", iterator_count);
+
+		dwNumBytesToSend = 0;
+		
+		byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+		
+		byOutputBuffer[dwNumBytesToSend++] = 0x00; // length = 1 bit
+
+		// send TMS = 0 to remain in the SHIFT_IR state
+		// send TDO = 1 to shift in a 1 into the IR-register
+		byOutputBuffer[dwNumBytesToSend++] = 0b10000000;
+
+		ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+		printf("[WRITE] ftStatus = %d\n", ftStatus); // 0 == FT_OK
+		if (ftStatus != FT_OK) {
+			printf("[WRITE] ERROR OCCURED!\n");
+		}
+		
+		dwNumBytesToSend = 0;
+
+		Sleep(100);
+
+		
+
+		
+		//
+		// Read
+		//
+
+		printf("\n");
+
+		dwNumBytesToRead = 0;
+
+		// get the number of bytes in the device input buffer or timeout
+		do
+		{
+			printf("Reading ...\n");
+			ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+			printf("Reading done.\n");
+
+		} while ((dwNumBytesToRead == 0) && (ftStatus == FT_OK));
+
+		printf("[READ] Buffer contains %d bytes.\n", dwNumBytesToRead);
+
+		if (dwNumBytesToRead > 0) {
+
+			// clear input buffer
+			memset(byInputBuffer, 0, input_buffer_length);
+
+			// perform the read
+			ftStatus = FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
+
+			printf("[READ] dwNumBytesToRead: %d dwNumBytesRead: %d.\n", dwNumBytesToRead, dwNumBytesRead);
+
+			for (int i = 0; i < dwNumBytesRead; i++) {
+				printf("[READ] %d - %02X\n", i, byInputBuffer[i]);
+			}
+
+			buffer = buffer >> 1;
+			buffer |= (((byInputBuffer[0] & 0x80) >> 7) << 31);
+
+			//printf("[READ] done. buffer: %"PRIu32"\n", buffer);
+			printf("[READ] done. buffer: %zu\n", buffer);
+
+			//FT_Purge(ftHandle, FT_PURGE_RX);
+
+		}
+		else {
+
+			printf("[READ] nothing to read!\n");
+
+		}
+
+		Sleep(100);
+
+		if (iterator_count == 64) {
+			printf("[READ] done. buffer: %zu\n", buffer);
+			break;
+		}
+		
+
+		iterator_count++;
+	}
+	*/
+
+	//
+	// (shifting data while NOT sending TMS to keep the state machine
+	// inside the current state!)
+	//
+
+	// TODO
+
+
+
+
+
 
 
 	//Sleep(3000);
@@ -802,13 +1681,20 @@ int _tmain(int argc, _TCHAR* argv[])
 	*/
 
 	/*
+	// 
+	// Command: 0x39 - Data is clocked in and out at the same time
+	//
 	// shift out 32 bits (IDCODE register is 32 bits wide)
+	//
+	// Data is clocked in and out at the same time
 	dwNumBytesToSend = 0;
-	byOutputBuffer[dwNumBytesToSend++] = 0x39; // 3.4.9 Clock Data Bytes In and Out LSB first 
+	byOutputBuffer[dwNumBytesToSend++] = 0x39; // page 15, 3.4.9 Clock Data Bytes In and Out LSB first 
 
-	byOutputBuffer[dwNumBytesToSend++] = 0x03; // length low (4 byte)
+	// set the length to 0x0003 which yields (4 byte)
+	byOutputBuffer[dwNumBytesToSend++] = 0x03; // length low
 	byOutputBuffer[dwNumBytesToSend++] = 0x00; // length high
 
+	// here are the four byte configured by the length above
 	byOutputBuffer[dwNumBytesToSend++] = 0x00; // byte 0
 	byOutputBuffer[dwNumBytesToSend++] = 0x00; // byte 1
 	byOutputBuffer[dwNumBytesToSend++] = 0x00; // byte 2
@@ -872,8 +1758,13 @@ int _tmain(int argc, _TCHAR* argv[])
 	for (int i = 0; i < 100; i++) {
 
 		dwNumBytesToSend = 0;
-		byOutputBuffer[dwNumBytesToSend++] = 0x3B; // write bits to TDI (out on -ve edge, in on +ve edge)
-		//byOutputBuffer[dwNumBytesToSend++] = 0x3E; // write bits to TDI (out on +ve edge, in on -ve edge)
+
+		// page 15, write bits to TDI (out on -ve edge, in on +ve edge)
+		byOutputBuffer[dwNumBytesToSend++] = 0x3B; 
+
+		// page 15, write bits to TDI (out on +ve edge, in on -ve edge)
+		//byOutputBuffer[dwNumBytesToSend++] = 0x3E;
+		
 		byOutputBuffer[dwNumBytesToSend++] = 0x07; // eight bits
 
 		byOutputBuffer[dwNumBytesToSend++] = 0xFF; // 11111111
