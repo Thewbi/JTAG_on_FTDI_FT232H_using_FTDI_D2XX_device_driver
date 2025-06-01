@@ -34,7 +34,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	DWORD dwNumBytesSent = 0; // Count of actual bytes sent - used with FT_Write
 	DWORD dwNumBytesToRead = 0; // Number of bytes available to read in the driver's input buffer
 	DWORD dwNumBytesRead = 0; // Count of actual bytes read - used with FT_Read
-	DWORD dwClockDivisor = 0x05DB; // Value of clock divisor, SCL Frequency = 60/((1+0x05DB)*2) (MHz) = 20khz
+	
 	
 	//
 	// 1. FT_CreateDeviceInfoList()
@@ -127,7 +127,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	}
 
 	// Wait for all the USB stuff to complete and work
-	Sleep(3000);
+	Sleep(1000);
 
 
 	// https://atadiat.com/en/e-ftdi-mpsse-engine-programming-basics-a-gui-example/
@@ -315,13 +315,25 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	//
 	// Clock settings
-	// Set TCK frequency
 	// 
-	
-	
+	// Set TCK frequency to 20 kHz
+	// 
+	// The clock frequency is determined by the clock divider.
+	// The original input clock source is 60 Mhz.
+	// 
+	// TCK = 60MHz / ( (1 + [(1 + 0xValueH * 256) OR 0xValueL]) * 2)
+	// 
+	// DWORD dwClockDivisor = 0x05DB; // this divisor value produce a 20 kHz clock
+	// // Value of clock divisor, SCL Frequency = 60000000 / ( (1 + 0x05DB) * 2 ) (MHz) = 20000 (kHz)
+	//
+
+	DWORD dwClockDivisor = 0x05DB; // Value of clock divisor, SCL Frequency = 60/((1+0x05DB)*2) (MHz) = 20khz
+	//DWORD dwClockDivisor = 0x751C; // clock = 1000Hz = 1kHz
+
+	// Reset output buffer pointer
+	dwNumBytesToSend = 0;
 
 	// Set TCK frequency
-	// TCK = 60MHz /((1 + [(1 +0xValueH*256) OR 0xValueL])*2)
 	byOutputBuffer[dwNumBytesToSend++] = '\x86';
 
 	// Command to set clock divisor
@@ -349,7 +361,8 @@ int _tmain(int argc, _TCHAR* argv[])
 	// https://ftdichip.com/Documents/AppNotes/AN_129_FTDI_Hi_Speed_USB_To_JTAG_Example.pdf
 	// 
 	
-	
+	// Reset output buffer pointer
+	dwNumBytesToSend = 0;
 
 	// Disable internal loop-back
 	byOutputBuffer[dwNumBytesToSend++] = 0x85;
@@ -362,38 +375,408 @@ int _tmain(int argc, _TCHAR* argv[])
 
 
 
-
+	printf("Setup done.\n");
 
 
 	// https://ftdichip.com/Documents/AppNotes/AN_129_FTDI_Hi_Speed_USB_To_JTAG_Example.pdf
 	//
 
 
+	/*
+	int tms_data = 0x01;
+	while (true) {
 
-	/**/
+		printf("tms_clk - tms: %d\n", tms_data);
+
+		dwNumBytesToSend = 0;
+		byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+		byOutputBuffer[dwNumBytesToSend++] = 0x00; // length = 1 bit
+		byOutputBuffer[dwNumBytesToSend++] = tms_data;
+		ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+		dwNumBytesToSend = 0;
+
+		Sleep(1000);
+	}
+	*/
+
+
+
+
+	/*
+	int toggle_data = 0x00;
+
+	while (true) {
+
+		printf("tms_clk - tms: %d\n", toggle_data);
+
+		dwNumBytesToSend = 0;
+		byOutputBuffer[dwNumBytesToSend++] = 0x4A; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+		byOutputBuffer[dwNumBytesToSend++] = 0x00; // length = 1 bit
+
+		toggle_data = 0x01 - toggle_data;
+		byOutputBuffer[dwNumBytesToSend++] = toggle_data; // 0000000?
+		ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+		dwNumBytesToSend = 0;
+
+		Sleep(3000);
+	}
+	*/
+
+	/*
+	int toggle_data_array[100];
+	toggle_data_array[0] = 0;
+	for (size_t i = 0; i < 100; i++) {
+		toggle_data_array[i] = 0;
+	};
+
+	int idx = 0;
+	// go to start state
+	toggle_data_array[idx++] = 1;
+	toggle_data_array[idx++] = 1;
+	toggle_data_array[idx++] = 1;
+	toggle_data_array[idx++] = 1;
+	toggle_data_array[idx++] = 1;
+
+	//// start transitions to SHIFT_DR (state 0x05)
+	//toggle_data_array[idx++] = 0; // RUN_TEST_IDLE
+	//toggle_data_array[idx++] = 1; // SELECT_DR_SCAN
+	//toggle_data_array[idx++] = 0; // CAPTURE_DR
+	//toggle_data_array[idx++] = 1; // EXIT1_DR
+	//toggle_data_array[idx++] = 1; // UPDATE_DR
+	//toggle_data_array[idx++] = 1; // SELECT_DR_SCAN
+	//toggle_data_array[idx++] = 0; // CAPTURE_DR
+	//toggle_data_array[idx++] = 0; // SHIFT_DR
+	//// stay in SHIFT_DR (state 0x05) forever
+	//toggle_data_array[idx++] = 0; // SHIFT_DR ...
+
+	// start transitions to SHIFT_IR (state 11d = 0x0B)
+	toggle_data_array[idx++] = 0; // RUN_TEST_IDLE
+	toggle_data_array[idx++] = 1; // SELECT_DR_SCAN
+	toggle_data_array[idx++] = 1; // SELECT_IR_SCAN
+	toggle_data_array[idx++] = 0; // CAPTURE_IR
+	toggle_data_array[idx++] = 0; // SHIFT_IR
+	// stay in SHIFT_IR (state 11d = 0x0B) forever
+	toggle_data_array[idx++] = 0; // SHIFT_IR ...
+
+	size_t i = 0;
+
+	while (true) {
+
+		printf("tms_clk - tms: %d\n", toggle_data_array[i]);
+
+		dwNumBytesToSend = 0;
+		byOutputBuffer[dwNumBytesToSend++] = 0x4A; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+		byOutputBuffer[dwNumBytesToSend++] = 0x00; // length = 1 bit
+		byOutputBuffer[dwNumBytesToSend++] = toggle_data_array[i]; // 0000000?
+		ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+		dwNumBytesToSend = 0;
+
+		Sleep(1000);
+
+		i++;
+		if (i >= 100) {
+			i = 0;
+		}
+	}
+	*/
+
+
+	/*
+	printf("Step ...\n");
+	// DEBUG - perform a single step
+	dwNumBytesToSend = 0;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x00; // length = 1 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0x01; // 000001
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	printf("Step done.\n");
+	*/
+
+	
 
 	//
 	// Reset all state machines.
+	// 
 	// Navigate to Debug-Logic-Reset (send five ones)
 	// because this is the well-known initial start state
 	//
 
+	/**/
+	printf("Resetting to TEST_LOGIC_RESET (0x00) ...\n");
 	dwNumBytesToSend = 0;
-	byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
 	byOutputBuffer[dwNumBytesToSend++] = 0x04; // length = 5 bit
 	byOutputBuffer[dwNumBytesToSend++] = 0x1F; // 00011111
 	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
 	dwNumBytesToSend = 0;
+	printf("Resetting to TEST_LOGIC_RESET (0x00) done.\n");
 
+	/*
+	printf("To RUN_TEST_IDLE (state 0x01) ...\n");
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x00; // length = 1 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0x00; // 0000000
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	printf("To RUN_TEST_IDLE (state 0x01) done.\n");
+	*/
+
+	//
+	// DR Tests
+	//
+
+	/*
+	printf("To SELECT_DR_SCAN (state 0x02) ...\n");
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x01; // length = 2 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0x02; // 0000010
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	printf("To SELECT_DR_SCAN (state 0x02) done.\n");
+	*/
+
+	/*
+	printf("To CAPTURE_DR (state 3d = 0x03) ...\n");
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x02; // length = 3 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0x02; // 0000010
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	printf("To CAPTURE_DR (state 3d = 0x03) done.\n");
+	*/
+
+	/*
+	printf("To SHIFT_DR (state 0x04) ...\n");
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x03; // length = 4 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0x02; // 0000010
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	printf("To SHIFT_DR (state 0x04) done.\n");
+	*/
+
+    /*
+	printf("To EXIT1_DR (state 5d = 0x05) ...\n");
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x04; // length = 5 bit
+	//byOutputBuffer[dwNumBytesToSend++] = 0x12; // 00010010
+	byOutputBuffer[dwNumBytesToSend++] = 0b00010010; // 00010010
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	printf("To EXIT1_DR (state 5d = 0x05) done.\n");
+	*/
+
+	/*
+	printf("To PAUSE_DR (state 6d = 0x06) ...\n");
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x05; // length = 6 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00010010; // 18d = 0x12 = b0010010
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	printf("To PAUSE_DR (state 6d = 0x06) done.\n");
+	*/
+
+	/*
+	printf("To EXIT2_DR (07d = 0x07 = 6'b000111) ...\n");
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b01010010; // 82d = 0x52 = b01010010
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	printf("To EXIT2_DR (07d = 0x07 = 6'b000111) done.\n");
+	*/
+
+	/**/
+	printf("To UPDATE_DR (08d = 0x08 = b1000) ...\n");
+
+	// send sequence: 11010010. Executed LSB first, this sequence
+	// navigates the state machine from TEST-LOGIC-RESET to UPDATE_DR.
+	// 
+	// Because 7 bit can be sent using the 0x4A, 0x4B commands, two
+	// 0x4A, 0x4B commands are required to sent 8 bits. The first
+	// command sends 1010010 and the second command sends the MSB 1 bit.
+	//
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b01010010; // 01010010
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x00; // length = 1 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000001; // 00000001
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	printf("To UPDATE_DR (08d = 0x08 = b1000) done.\n");
+
+	//
+	// IR Tests
+	//
+
+	/*
+	printf("To SELECT_IR_SCAN (state 09d = 0x09 = b1001) ...\n");
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x02; // length = 3 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000110; // 00000110
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	printf("To SELECT_IR_SCAN (state 09d = 0x09 = b1001) done.\n");
+	*/
+
+	/*
+	printf("To CAPTURE_IR (state 10d = 0x0A = b1010) ...\n");
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x03; // length = 4 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000110; // 00000110
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	printf("To CAPTURE_IR (state 10d = 0x0A = b1010) done.\n");
+	*/
+
+	/*
+	printf("To SHIFT_IR (state 11d = 0x0B = b1011) ...\n");
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x04; // length = 5 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000110; // 00000110
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	printf("To SHIFT_IR (state 11d = 0x0B = b1011) done.\n");
+	*/
+
+	/*
+	printf("To EXIT1_IR (state 12d = 0x0C = b1100) ...\n");
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x05; // length = 6 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00100110; // 00100110
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	printf("To EXIT1_IR (state 12d = 0x0C = b1100) done.\n");
+	*/
+
+	/*
+	printf("To PAUSE_IR (state 13d = 0x0D = b1101) ...\n");
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00100110; // 0[0100110]
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	printf("To PAUSE_IR (state 13d = 0x0D = b1101) done.\n");
+	*/
+
+	/*
+	printf("To EXIT2_IR (state 14d = 0x0E = b1110) ...\n");
+
+	// send sequence: 10100110. Executed LSB first, this sequence
+	// navigates the state machine from TEST-LOGIC-RESET to EXIT2_IR.
+	// 
+	// Because 7 bit can be sent using the 0x4A, 0x4B commands, two
+	// 0x4A, 0x4B commands are required to sent 8 bits. The first
+	// command sends 0100110 and the second command sends the MSB 1 bit.
+	//
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00100110; // 10100110
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x00; // length = 1 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000001; // 00000001
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	printf("To EXIT2_IR (state 14d = 0x0E = b1110) done.\n");
+	*/
+
+	/*
+	printf("To UPDATE_IR (state 15d = 0x0F = b1111) ...\n");
+
+	// send sequence: 110100110. Executed LSB first, this sequence
+	// navigates the state machine from TEST-LOGIC-RESET to EXIT2_IR.
+	// 
+	// Because 7 bit can be sent using the 0x4A, 0x4B commands, two
+	// 0x4A, 0x4B commands are required to sent 8 bits. The first
+	// command sends 0100110 and the second command sends the MSB 1 bit.
+	//
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x06; // length = 7 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00100110; // 10100110
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x01; // length = 1 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0b00000011; // 00000011
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+
+	printf("To UPDATE_IR (state 15d = 0x0F = b1111) done.\n");
+	*/
+
+
+
+
+
+	//Sleep(3000);
 	
 
+	/*
+	printf("Single Step (0) ...\n");
+	// DEBUG - perform a single step
+	dwNumBytesToSend = 0;
+	//byOutputBuffer[dwNumBytesToSend++] = 0x4A;
+	byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x00; // length = 1 bit
+	byOutputBuffer[dwNumBytesToSend++] = 0x00; // 000000
+	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+	dwNumBytesToSend = 0;
+	printf("Single Step (0) done.\n");
+
+	Sleep(3000);
+	*/
+	
+	/*
 	//
 	// Enter Shift-DR state by sending 0, 1, 0, 0
 	// 
 	// Debug-Logic-Reset -0-> 
 	// Run-Test/Idle -1-> 
 	// Select-DR-Scan -0-> 
-	// Caputre-DR -0->
+	// Capture-DR -0->
 	// SHIFT-DR
 	// 
 
@@ -416,8 +799,10 @@ int _tmain(int argc, _TCHAR* argv[])
 	//byOutputBuffer[dwNumBytesToSend++] = 0x01; // 11111111
 	//ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
 	//dwNumBytesToSend = 0;
+	*/
 
-
+	/*
+	// shift out 32 bits (IDCODE register is 32 bits wide)
 	dwNumBytesToSend = 0;
 	byOutputBuffer[dwNumBytesToSend++] = 0x39; // 3.4.9 Clock Data Bytes In and Out LSB first 
 
@@ -434,7 +819,11 @@ int _tmain(int argc, _TCHAR* argv[])
 	dwNumBytesToSend = 0;
 
 
-	Sleep(100);
+	Sleep(500);
+
+	//
+	// Read 4 byte from buffer
+	//
 
 	memset(byInputBuffer, 0, input_buffer_length);
 
@@ -447,7 +836,8 @@ int _tmain(int argc, _TCHAR* argv[])
 	ftStatus = FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
 	
 	printf("done");
-	
+	*/
+
 	/*
 	//
 	// Enter Shift-IR state by sending 0, 1, 1, 0, 0
@@ -485,14 +875,19 @@ int _tmain(int argc, _TCHAR* argv[])
 		byOutputBuffer[dwNumBytesToSend++] = 0x3B; // write bits to TDI (out on -ve edge, in on +ve edge)
 		//byOutputBuffer[dwNumBytesToSend++] = 0x3E; // write bits to TDI (out on +ve edge, in on -ve edge)
 		byOutputBuffer[dwNumBytesToSend++] = 0x07; // eight bits
+
 		byOutputBuffer[dwNumBytesToSend++] = 0xFF; // 11111111
+		//byOutputBuffer[dwNumBytesToSend++] = 0xAA; // 10101010
+
 		ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
 		dwNumBytesToSend = 0;
 
 		printf("dwNumBytesSent: %d\n", dwNumBytesSent);
 
-	}
+		Sleep(500);
 
+	}
+	
 	printf("IR write done.\n");
 */
 
@@ -549,6 +944,8 @@ int _tmain(int argc, _TCHAR* argv[])
 	printf("Fill with zero done\n");
 	*/
 
+
+/*
 	//
 	// Start counting by shifting 1s into all BYPASS registers of the daisy chain, until
 	// the first one exits the chain on TDO and count the amount of steps that it takes
@@ -607,7 +1004,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	printf("200: %d \n", byInputBuffer[200]);
 
 	printf("done ...\n");
-	
+*/
 
 
 	/*
