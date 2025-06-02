@@ -83,8 +83,105 @@ FT_STATUS pure_write_uint32_t(FT_HANDLE& ftHandle, uint32_t data) {
 
 }
 
+void pure_read_bitwise(FT_HANDLE& ftHandle, bool clearQueueBeforeOperation) {
+
+	FT_STATUS ftStatus = FT_OK;
+	uint32_t value;
+	BYTE byInputBuffer[1024];
+
+	DWORD dwNumBytesToRead = 0; // Number of bytes available to read in the driver's input buffer
+	DWORD dwNumBytesRead = 0;
+	DWORD dwNumBytesToSend = 0; // Index to the output buffer
+	BYTE byOutputBuffer[128]; // Buffer to hold MPSSE commands and data to be sent to the FT2232H
+	DWORD dwNumBytesSent = 0; // Count of actual bytes sent - used with FT_Write
+
+	// reading the queue when no data is expected leads to an endless loop.
+	// If you did not write anyhting and hence expect no data in the queue,
+	// skip clearing the input queue
+	if (clearQueueBeforeOperation) {
+
+		//
+		// Clear input buffer (because the pure read does not care about old data)
+		//
+
+		do
+		{
+			//printf("Reading ...\n");
+			ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+			//printf("Reading done.\n");
+
+		} while ((dwNumBytesToRead == 0) && (ftStatus == FT_OK));
+
+		printf("dwNumBytesToRead: %d\n", dwNumBytesToRead);
+
+		// clear input buffer
+		memset(byInputBuffer, 0, input_buffer_length);
+
+		// perform the read but do not process the data
+		ftStatus = FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
+
+	}
+
+	//
+	// Shift/Write single bit wise! The read input will contain a snapshot of the 8-byte
+	// input buffer for every Shift/Write you perform!
+	//
+
+	for (int i = 0; i < 32; i++) {
+
+		dwNumBytesToSend = 0;
+		byOutputBuffer[dwNumBytesToSend++] = 0x6E; // command
+		byOutputBuffer[dwNumBytesToSend++] = 0x00; // length = 1 bit
+		byOutputBuffer[dwNumBytesToSend++] = 0b10000000;
+		ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+		printf("[WRITE] ftStatus = %d\n", ftStatus); // 0 == FT_OK
+		if (ftStatus != FT_OK) {
+			printf("[WRITE] ERROR OCCURED!\n");
+		}
+		dwNumBytesToSend = 0;
+
+		Sleep(100);
+
+	}
+
+	Sleep(1000);
+
+	// get the number of bytes in the device input buffer or timeout
+	do
+	{
+		printf("Reading ...\n");
+		ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+		printf("Reading done.\n");
+
+	} while ((dwNumBytesToRead == 0) && (ftStatus == FT_OK));
+
+	printf("[READ] Buffer contains %d bytes.\n", dwNumBytesToRead);
+
+	if (dwNumBytesToRead > 0) {
+
+		// clear input buffer
+		memset(byInputBuffer, 0, input_buffer_length);
+
+		// perform the read
+		ftStatus = FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
+		if (ftStatus != FT_OK) {
+			printf("error\n");
+		}
+		printf("[READ] dwNumBytesToRead: %d dwNumBytesRead: %d.\n", dwNumBytesToRead, dwNumBytesRead);
+
+		//printf("%d - %d\n", i, byInputBuffer[0]);
+		//printf("\n");
+
+		uint32_t result = byInputBuffer[31] << 24 | byInputBuffer[23] << 16 | byInputBuffer[15] << 8 | byInputBuffer[7] << 0;
+		printf("%d\n", result);
+	}
+
+}
+
 // ftHandle -- Handle of the FTDI device
-uint32_t pure_read_uint32_t(FT_HANDLE &ftHandle) {
+//
+// This function shifts in zeroes to push out the bits
+uint32_t pure_read_uint32_t(FT_HANDLE &ftHandle, bool clearQueueBeforeOperation) {
 
 	uint32_t value;
 	BYTE byInputBuffer[1024];
@@ -96,26 +193,33 @@ uint32_t pure_read_uint32_t(FT_HANDLE &ftHandle) {
 	BYTE byOutputBuffer[128]; // Buffer to hold MPSSE commands and data to be sent to the FT2232H
 	DWORD dwNumBytesSent = 0; // Count of actual bytes sent - used with FT_Write
 
-	//
-	// Clear input buffer (because the pure read does not care about old data)
-	//
+	
+	// reading the queue when no data is expected leads to an endless loop.
+	// If you did not write anyhting and hence expect no data in the queue,
+	// skip clearing the input queue
+	if (clearQueueBeforeOperation) {
 
-	do
-	{
-		//printf("Reading ...\n");
-		ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
-		//printf("Reading done.\n");
+		//
+		// Clear input buffer (because the pure read does not care about old data)
+		//
 
-	} while ((dwNumBytesToRead == 0) && (ftStatus == FT_OK));
+		do
+		{
+			//printf("Reading ...\n");
+			ftStatus = FT_GetQueueStatus(ftHandle, &dwNumBytesToRead);
+			//printf("Reading done.\n");
 
-	printf("dwNumBytesToRead: %d\n", dwNumBytesToRead);
+		} while ((dwNumBytesToRead == 0) && (ftStatus == FT_OK));
 
-	// clear input buffer
-	memset(byInputBuffer, 0, input_buffer_length);
+		printf("dwNumBytesToRead: %d\n", dwNumBytesToRead);
 
-	// perform the read but do not process the data
-	ftStatus = FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
+		// clear input buffer
+		memset(byInputBuffer, 0, input_buffer_length);
 
+		// perform the read but do not process the data
+		ftStatus = FT_Read(ftHandle, &byInputBuffer, dwNumBytesToRead, &dwNumBytesRead);
+
+	}
 
 	/*
 
@@ -334,6 +438,30 @@ uint32_t pure_read_uint32_t(FT_HANDLE &ftHandle) {
 	}
 
 	return value;
+}
+
+FT_STATUS transition_slow(FT_HANDLE& ftHandle, int size, int bit_path) {
+
+	byte byOutputBuffer[10];
+	DWORD dwNumBytesSent = 0;
+	FT_STATUS ftStatus = FT_OK;
+
+	for (int i = 0; i < size; i++) {
+	
+		int step = bit_path & 0x01;
+		bit_path >>= 1;
+
+		int dwNumBytesToSend = 0;
+		byOutputBuffer[dwNumBytesToSend++] = 0x4A; // send on rising edge, read on falling edge of JTAG_CLK
+		byOutputBuffer[dwNumBytesToSend++] = 0x00; // length = 1 bit
+		byOutputBuffer[dwNumBytesToSend++] = step;
+		ftStatus |= FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
+		dwNumBytesToSend = 0;
+
+		Sleep(1000);
+	}
+
+	return ftStatus;
 }
 
 int _tmain(int argc, _TCHAR* argv[])
@@ -822,7 +950,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	// because this is the well-known initial start state
 	//
 
-	/**/
+    /**/
 	printf("Resetting to TEST_LOGIC_RESET (0x00) ...\n");
 	dwNumBytesToSend = 0;
 	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
@@ -832,6 +960,13 @@ int _tmain(int argc, _TCHAR* argv[])
 	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
 	dwNumBytesToSend = 0;
 	printf("Resetting to TEST_LOGIC_RESET (0x00) done.\n");
+	
+
+    /*
+	printf("Resetting to TEST_LOGIC_RESET (0x00) ...\n");
+	transition_slow(ftHandle, 5, 0b11111);
+	printf("Resetting to TEST_LOGIC_RESET (0x00) done.\n");
+	*/
 
 	/*
 	printf("To RUN_TEST_IDLE (state 0x01) ...\n");
@@ -873,15 +1008,20 @@ int _tmain(int argc, _TCHAR* argv[])
 	printf("To CAPTURE_DR (state 3d = 0x03) done.\n");
 	*/
 
-	/*
+	/**/
 	printf("To SHIFT_DR (state 0x04) ...\n");
 	dwNumBytesToSend = 0;
-	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
-	//byOutputBuffer[dwNumBytesToSend++] = 0x4B; // 0x4B : TMS with LSB first on -ve clk edge - use if clk is set to '0'
+	byOutputBuffer[dwNumBytesToSend++] = 0x4A; // send on rising edge, read on falling edge of JTAG_CLK
 	byOutputBuffer[dwNumBytesToSend++] = 0x03; // length = 4 bit
 	byOutputBuffer[dwNumBytesToSend++] = 0x02; // 0000010
 	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
 	dwNumBytesToSend = 0;
+	printf("To SHIFT_DR (state 0x04) done.\n");
+	
+
+	/*
+	printf("To SHIFT_DR (state 0x04) ...\n");
+	transition_slow(ftHandle, 4, 0b0010);
 	printf("To SHIFT_DR (state 0x04) done.\n");
 	*/
 
@@ -978,7 +1118,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	printf("To CAPTURE_IR (state 10d = 0x0A = b1010) done.\n");
 	*/
 
-	/**/
+	/*
 	printf("To SHIFT_IR (state 11d = 0x0B = b1011) ...\n");
 	dwNumBytesToSend = 0;
 	byOutputBuffer[dwNumBytesToSend++] = 0x4A;
@@ -988,7 +1128,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	ftStatus = FT_Write(ftHandle, byOutputBuffer, dwNumBytesToSend, &dwNumBytesSent);
 	dwNumBytesToSend = 0;
 	printf("To SHIFT_IR (state 11d = 0x0B = b1011) done.\n");
-	
+	*/
 
 	/*
 	printf("To EXIT1_IR (state 12d = 0x0C = b1100) ...\n");
@@ -1287,7 +1427,7 @@ int _tmain(int argc, _TCHAR* argv[])
 
 
 
-    
+    /*
 	uint32_t test_value = 0x12345678;
 
 	//
@@ -1370,7 +1510,7 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	printf("[READ] done\n");
 
-
+	*/
 	
 
 
@@ -1422,10 +1562,18 @@ int _tmain(int argc, _TCHAR* argv[])
 
 
 
-	pure_write_uint32_t(ftHandle, 0x12345678);
+	//pure_write_uint32_t(ftHandle, 0x12345678);
 	
-	uint32_t pure_read_result = pure_read_uint32_t(ftHandle);
-	printf("0x%08X\n", pure_read_result);
+	/**/
+	printf("pure read ...\n");
+	bool clearQueueBeforeOperation = false;
+	uint32_t pure_read_result = pure_read_uint32_t(ftHandle, clearQueueBeforeOperation);
+	printf("Read result: 0x%08X\n", pure_read_result);
+	printf("pure read done.\n");
+
+	//bool clearQueueBeforeOperation = false;
+	//pure_read_bitwise(ftHandle, clearQueueBeforeOperation);
+
 
 
 
